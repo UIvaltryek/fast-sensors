@@ -11,7 +11,7 @@ import android.os.Handler;
 
 public class SensorUnlocker implements IXposedHookLoadPackage {
     
-    // A silent background listener to force the Uncalibrated hardware to turn on
+    // A silent background listener to keep the uncalibrated pipelines open
     private static final SensorEventListener silentListener = new SensorEventListener() {
         @Override public void onSensorChanged(android.hardware.SensorEvent event) {}
         @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
@@ -19,25 +19,34 @@ public class SensorUnlocker implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) throws Throwable {
-        if (!lpparam.packageName.equals("com.activision.callofduty.shooter")) return;
+        // Universal Hook: Removed package specific restrictions completely. 
+        // This will now intercept sensor requests system-wide.
 
         XC_MethodHook delayHook = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                param.args[2] = 0; // Force SENSOR_DELAY_FASTEST
+                // Force max hardware polling rate
+                param.args[2] = 0; 
 
                 Sensor sensor = (Sensor) param.args[1];
                 
-                // When Unity asks for the Calibrated Compass (Type 2) for the minimap
-                if (sensor != null && sensor.getType() == 2) { 
+                if (sensor != null) {
                     SensorManager sm = (SensorManager) param.thisObject;
-                    Sensor uncali = sm.getDefaultSensor(14); // 14 = Uncalibrated Compass
                     
-                    if (uncali != null) {
-                        // Secretly open the Uncalibrated 200Hz pipeline for our C++ module to steal
-                        try {
-                            sm.registerListener(silentListener, uncali, 0);
-                        } catch (Throwable t) {}
+                    // 1. If an app asks for Calibrated Accel (Type 1), wake up Uncalibrated Accel (Type 35)
+                    if (sensor.getType() == 1) { 
+                        Sensor uncaliAcc = sm.getDefaultSensor(35); 
+                        if (uncaliAcc != null) {
+                            try { sm.registerListener(silentListener, uncaliAcc, 0); } catch (Throwable t) {}
+                        }
+                    }
+                    
+                    // 2. If an app asks for Calibrated Mag (Type 2), wake up Uncalibrated Mag (Type 14)
+                    if (sensor.getType() == 2) { 
+                        Sensor uncaliMag = sm.getDefaultSensor(14); 
+                        if (uncaliMag != null) {
+                            try { sm.registerListener(silentListener, uncaliMag, 0); } catch (Throwable t) {}
+                        }
                     }
                 }
             }
